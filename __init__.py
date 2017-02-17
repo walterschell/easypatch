@@ -15,15 +15,21 @@ class MemoryReference:
         self.addr = addr
         self.operation = operation
     def __str__(self):
-        if isinstance(self.operation, LowLevelILInstruction):
-            operation = str(self.operation)
+        if isinstance(self.operation, LowLevelILOperation):
+            operation = self.operation.name
         else:
             operation = 'OTHER'
         return '%s: %x' % (operation, self.addr)
     def __repr__(self):
         return str(self)
-    
+
+
 def get_memory_operands(il):
+    """
+    Recursively scans a LowLevelILInstruction for loads or stores
+    and returns a list of MemoryReference for all constant memory operands
+    referenced by the instruction
+    """ 
     if not isinstance(il, LowLevelILInstruction):
         return []
     print il
@@ -43,20 +49,29 @@ def get_memory_operands(il):
     for operand in il.operands:
         result += get_memory_operands(operand)
     return result
+
 def get_memory_operands_at(bv, addr):
+    """
+    Returns a list of MemoryReference at the 
+    given address of a BinaryView
+    """
     return get_memory_operands(get_il_at(bv,addr))
 
 def get_il_at(bv, addr):
+    """
+    Convert an address to low level il
+    """
     function = bv.get_basic_blocks_at(addr)[0].function
     return function.low_level_il[function.get_low_level_il_at(addr)]
 
-## Does not work properly
+#Placeholder for when we can make this work right
 def make_valid_for_writing(bv, base_addr, size):
     #Doesn't work right. Short circuit until it does
     return False
     valid = True
 
     buffer = '\0' * size
+    # Save off old buffer in case anything was already there
     for i, addr in enumerate(xrange(base_addr, base_addr + size)):
         try:
             buffer[index] = bv.read(addr)
@@ -77,6 +92,11 @@ def make_valid_for_writing(bv, base_addr, size):
         
     
 def easypatch(bv, addr):
+    """
+    Shows a dialog containing all memory operands at current instruction
+    and prompts for data to overwrite with. Expression is eval()ed so
+    \n and \0 are valid inputs
+    """
     targets = get_memory_operands_at(bv, addr)
     targets_field = interaction.ChoiceField('Patch Target:', targets)
     patch_text_field = interaction.TextLineField('Patch text:')
