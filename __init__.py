@@ -1,3 +1,8 @@
+"""
+easypatch
+Plugin for patching target of a memory operation from right click menu.
+Doesn't work on .bss section, and probably also doesn't work with debuggers.
+"""
 from binaryninja import interaction
 from binaryninja import plugin
 from binaryninja import function
