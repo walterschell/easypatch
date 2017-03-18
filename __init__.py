@@ -9,6 +9,7 @@ from binaryninja import function
 from binaryninja.lowlevelil import LowLevelILOperation
 from binaryninja.lowlevelil import LowLevelILInstruction
 from binaryninja.enums import SegmentFlag
+import string
 
 class MemoryReference:
     def __init__(self, addr, operation):
@@ -43,7 +44,8 @@ def get_memory_operands(il):
         elif il.src.operation == LowLevelILOperation.LLIL_CONST:
             result += [MemoryReference(il.src.value, None)]
     if il.operation == LowLevelILOperation.LLIL_PUSH:
-        result += [MemoryReference(il.src.value, None)]
+        if il.src.operation == LowLevelILOperation.LLIL_CONST:
+            result += [MemoryReference(il.src.value, None)]
     if len(result) > 0:
         return result
  
@@ -133,6 +135,9 @@ def read_string_at(bv, addr):
             addr += 1
     return result
 
+def is_printable(str):
+    return all(c in string.printable for c in str)
+
 def annotate_string(bv, addr):
     """
     Adds an annotation for the null terminated string referenced by op at current location
@@ -151,5 +156,21 @@ def annotate_string(bv, addr):
     function = bv.get_basic_blocks_at(addr)[0].function
     function.set_comment(addr, comment)
 
+def annotate_strings_for_funct(bv, addr):
+    function = bv.get_basic_blocks_at(addr)[0].function
+    for block in function.low_level_il:
+        for instruction in block:
+            annotate_addr = instruction.address
+            targets = get_memory_operands(instruction)
+            if len(targets) == 1:
+                comment = read_string_at(bv, targets[0].addr)
+                if comment != '' and is_printable(comment):
+                    print 'Annotating ->%s<- to 0x%x' % (comment, annotate_addr)
+                    function.set_comment(annotate_addr, comment)
+                else:
+                    print 'Not annotating unprintable ->%s<-' % comment
+
+
 plugin.PluginCommand.register_for_address('Easy Patch', 'Patch in user defined bytes', easypatch)
 plugin.PluginCommand.register_for_address('Annotate String', 'Annotate String', annotate_string)
+plugin.PluginCommand.register_for_address('Annotate Funct Strs', 'Annoate all strings in function', annotate_strings_for_funct)
