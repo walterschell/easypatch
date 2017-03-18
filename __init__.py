@@ -42,6 +42,8 @@ def get_memory_operands(il):
             result += [MemoryReference(il.dest.value, il.operation)]
         elif il.src.operation == LowLevelILOperation.LLIL_CONST:
             result += [MemoryReference(il.src.value, None)]
+    if il.operation == LowLevelILOperation.LLIL_PUSH:
+        result += [MemoryReference(il.src.value, None)]
     if len(result) > 0:
         return result
  
@@ -119,6 +121,35 @@ def easypatch(bv, addr):
         else:
             function = bv.get_basic_blocks_at(addr)[0].function
             function.reanalyze()
-                                                    
+def read_string_at(bv, addr):
+    result = ''
+    done = False
+    while not done:
+        c = bv.read(addr, 1)
+        if c in ['', '\0']:
+            done = True
+        else:
+            result += c
+            addr += 1
+    return result
+
+def annotate_string(bv, addr):
+    """
+    Adds an annotation for the null terminated string referenced by op at current location
+    """
+    targets = get_memory_operands_at(bv, addr)
+    if len(targets) == 0:
+        interaction.show_message_box('Error', 'No valid memory targets: %s' % str(get_il_at(bv, addr)))
+        return
+    if len(targets) > 1:
+        target  = interaction.Choice('Annotate Target:', targets).addr
+    else:
+        target = targets[0].addr
+    print 'Target: 0x%x' % target
+    comment = read_string_at(bv, target)
+    print 'Comment %s' % comment
+    function = bv.get_basic_blocks_at(addr)[0].function
+    function.set_comment(addr, comment)
 
 plugin.PluginCommand.register_for_address('Easy Patch', 'Patch in user defined bytes', easypatch)
+plugin.PluginCommand.register_for_address('Annotate String', 'Annotate String', annotate_string)
