@@ -8,7 +8,7 @@ from binaryninja import plugin
 from binaryninja import function
 from binaryninja.lowlevelil import LowLevelILOperation
 from binaryninja.lowlevelil import LowLevelILInstruction
-from binaryninja.enums import SegmentFlag
+from binaryninja.enums import SegmentFlag, InstructionTextTokenType
 import string
 
 class MemoryReference:
@@ -25,7 +25,7 @@ class MemoryReference:
         return str(self)
 
 
-def get_memory_operands(il):
+def get_memory_operands(il, include_ambigous_operands = False):
     """
     Recursively scans a LowLevelILInstruction for loads or stores
     and returns a list of MemoryReference for all constant memory operands
@@ -43,9 +43,13 @@ def get_memory_operands(il):
             result += [MemoryReference(il.dest.value, il.operation)]
         elif il.src.operation == LowLevelILOperation.LLIL_CONST:
             result += [MemoryReference(il.src.value, None)]
-    if il.operation == LowLevelILOperation.LLIL_PUSH:
-        if il.src.operation == LowLevelILOperation.LLIL_CONST:
-            result += [MemoryReference(il.src.value, None)]
+    if include_ambigous_operands:
+    	if il.operation == LowLevelILOperation.LLIL_PUSH:
+            if il.src.operation == LowLevelILOperation.LLIL_CONST:
+            	result += [MemoryReference(il.src.value, None)]
+	if il.operation == LowLevelILOperation.LLIL_SET_REG:
+	   if il.src.operation == LowLevelILOperation.LLIL_CONST:
+            	result += [MemoryReference(il.src.value, None)]
     if len(result) > 0:
         return result
  
@@ -54,12 +58,12 @@ def get_memory_operands(il):
         result += get_memory_operands(operand)
     return result
 
-def get_memory_operands_at(bv, addr):
+def get_memory_operands_at(bv, addr, include_ambigous_operands = False):
     """
     Returns a list of MemoryReference at the 
     given address of a BinaryView
     """
-    return get_memory_operands(get_il_at(bv,addr))
+    return get_memory_operands(get_il_at(bv,addr), include_ambigous_operands)
 
 def get_il_at(bv, addr):
     """
@@ -67,6 +71,17 @@ def get_il_at(bv, addr):
     """
     function = bv.get_basic_blocks_at(addr)[0].function
     return function.low_level_il[function.get_low_level_il_at(addr)]
+
+def get_instruction_annotation_at(bv, addr):
+    block = bv.get_basic_blocks_at(addr)[0]
+    result = []
+    for ins in block.disassembly_text:
+        if ins.address == addr:
+            print '%s' % ins.tokens
+	    for token in ins.tokens:
+                if token.type == InstructionTextTokenType.AnnotationToken:
+                    result.append(token)
+    return result
 
 #Placeholder for when we can make this work right
 def make_valid_for_writing(bv, base_addr, size):
@@ -101,7 +116,7 @@ def easypatch(bv, addr):
     and prompts for data to overwrite with. Expression is eval()ed so
     \n and \0 are valid inputs
     """
-    targets = get_memory_operands_at(bv, addr)
+    targets = get_memory_operands_at(bv, addr, True)
     targets_field = interaction.ChoiceField('Patch Target:', targets)
     patch_text_field = interaction.TextLineField('Patch text:')
     valid_input = interaction.get_form_input([targets_field,
@@ -142,7 +157,7 @@ def annotate_string(bv, addr):
     """
     Adds an annotation for the null terminated string referenced by op at current location
     """
-    targets = get_memory_operands_at(bv, addr)
+    targets = get_memory_operands_at(bv, addr, True)
     if len(targets) == 0:
         interaction.show_message_box('Error', 'No valid memory targets: %s' % str(get_il_at(bv, addr)))
         return
@@ -160,13 +175,19 @@ def annotate_strings_for_funct(bv, addr):
     function = bv.get_basic_blocks_at(addr)[0].function
     for block in function.low_level_il:
         for instruction in block:
+    	    if instruction.operation == LowLevelILOperation.LLIL_CALL:
+		print 'Skipping annotation call instruction'
+            	continue
             annotate_addr = instruction.address
-            targets = get_memory_operands(instruction)
+            targets = get_memory_operands(instruction, True)
             if len(targets) == 1:
                 comment = read_string_at(bv, targets[0].addr)
                 if comment != '' and is_printable(comment):
-                    print 'Annotating ->%s<- to 0x%x' % (comment, annotate_addr)
-                    function.set_comment(annotate_addr, comment)
+                    if len(get_instruction_annotation_at(bv, annotate_addr)) > 0:
+                        print '0x%x already annotated' % (addr)
+                    else:
+                        print 'Annotating ->%s<- to 0x%x' % (comment, annotate_addr)
+                        function.set_comment(annotate_addr, comment)
                 else:
                     print 'Not annotating unprintable ->%s<-' % comment
 
